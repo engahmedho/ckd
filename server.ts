@@ -3,9 +3,9 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import pg from "pg";
 import dotenv from "dotenv";
-import { GoogleGenAI, Type } from "@google/genai";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { spawn } from "child_process";
 
 dotenv.config();
 
@@ -16,9 +16,6 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
 });
-
-// Initialize Gemini for model simulation
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
 async function startServer() {
   const app = express();
@@ -88,31 +85,49 @@ async function startServer() {
 
   app.post("/api/predict", async (req, res) => {
     const { inputs, userId } = req.body;
+    
     try {
-      const prompt = `Simulate an XGBoost CKD prediction model. Data: ${JSON.stringify(inputs)}`;
-      const response = await ai.models.generateContent({
-        model: "gemini-1.5-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              diagnosis: { type: Type.STRING },
-              probability: { type: Type.NUMBER },
-              shapValues: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { feature: { type: Type.STRING }, value: { type: Type.NUMBER }, impact: { type: Type.STRING } } } },
-              summary: { type: Type.STRING }
-            }
-          }
-        }
+      // Execute Python bridge script
+      const pythonProcess = spawn("python3", ["bridge.py"]);
+      
+      let resultData = "";
+      let errorData = "";
+
+      pythonProcess.stdin.write(JSON.stringify(inputs));
+      pythonProcess.stdin.end();
+
+      pythonProcess.stdout.on("data", (data) => {
+        resultData += data.toString();
       });
 
-      const result = JSON.parse(response.text);
-      await pool.query(
-        "INSERT INTO assessments (user_id, inputs, result) VALUES ($1, $2, $3)",
-        [userId, JSON.stringify(inputs), JSON.stringify(result)]
-      );
-      res.json(result);
+      pythonProcess.stderr.on("data", (data) => {
+        errorData += data.toString();
+      });
+
+      pythonProcess.on("close", async (code) => {
+        if (code !== 0) {
+          console.error(`Python process exited with code ${code}: ${errorData}`);
+          return res.status(500).json({ error: "Prediction model failed to execute" });
+        }
+
+        try {
+          const result = JSON.parse(resultData);
+          if (result.error) {
+            return res.status(500).json({ error: result.error });
+          }
+
+          // Save to PostgreSQL
+          await pool.query(
+            "INSERT INTO assessments (user_id, inputs, result) VALUES ($1, $2, $3)",
+            [userId, JSON.stringify(inputs), JSON.stringify(result)]
+          );
+
+          res.json(result);
+        } catch (parseErr) {
+          console.error("Failed to parse Python output:", resultData);
+          res.status(500).json({ error: "Invalid output from prediction model" });
+        }
+      });
     } catch (err) {
       console.error("Prediction error:", err);
       res.status(500).json({ error: "Prediction failed" });
