@@ -1,20 +1,28 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Chronic Kidney Disease (CKD) Predictor - Llama 2 Edition
 
-# Run and deploy your AI Studio app
+This application uses a fine-tuned Llama 2 model to predict the risk of Chronic Kidney Disease based on clinical parameters.
 
-This contains everything you need to run your app locally.
+## Setup Instructions
 
-View your app in AI Studio: https://ai.studio/apps/401e7f01-6bf1-4e27-ab66-74d827998751
+### 1. Environment Variables
+Create a `.env` file in the root directory (or set these in your hosting provider like Render/Vercel):
 
-## Run Locally
+```env
+DATABASE_URL=your_postgresql_url
+JWT_SECRET=your_random_secret_string
+HUGGINGFACE_API_KEY=your_huggingface_token
+```
 
-**Prerequisites:**  Node.js
+### 2. Hugging Face Token
+You can get your token from [Hugging Face Settings](https://huggingface.co/settings/tokens). Ensure it has `Read` access.
 
+### 3. Deployment
+This app is ready to be deployed to **Render**, **Railway**, or any Node.js hosting.
+- **Build Command:** `npm run build`
+- **Start Command:** `npm start`
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Technical Stack
+- **Frontend:** React + Tailwind CSS + Framer Motion
+- **Backend:** Node.js + Express
+- **AI Model:** Llama 2 (Fine-tuned for CKD) via Hugging Face Inference API
+- **Database:** PostgreSQL
