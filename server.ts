@@ -5,7 +5,7 @@ import pg from "pg";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { spawn } from "child_process";
+import { spawn, exec } from "child_process";
 
 dotenv.config();
 
@@ -31,7 +31,14 @@ async function startServer() {
 
   // API Routes (Register these FIRST)
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", message: "Server is running", timestamp: new Date().toISOString() });
+    exec("python3 --version", (error, stdout, stderr) => {
+      res.json({ 
+        status: "ok", 
+        message: "Server is running", 
+        timestamp: new Date().toISOString(),
+        python: error ? "Not found" : stdout.trim() || stderr.trim()
+      });
+    });
   });
 
   app.post("/api/auth/register", async (req, res) => {
@@ -104,7 +111,23 @@ async function startServer() {
         errorData += data.toString();
       });
 
+      pythonProcess.on("error", (err) => {
+        console.error("Failed to start Python process:", err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Python execution failed", details: err.message });
+        }
+      });
+
+      const timeout = setTimeout(() => {
+        pythonProcess.kill();
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Prediction timed out after 30 seconds" });
+        }
+      }, 30000);
+
       pythonProcess.on("close", async (code) => {
+        clearTimeout(timeout);
+        if (res.headersSent) return;
         if (code !== 0) {
           console.error(`Python process exited with code ${code}. Error: ${errorData}`);
           return res.status(500).json({ 
