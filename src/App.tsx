@@ -8,10 +8,9 @@ import { CKDInputs, PredictionResult } from "./types";
 import { predictCKD } from "./services/apiService";
 import { Stethoscope, LogOut, LayoutDashboard, ClipboardList, User as UserIcon } from "lucide-react";
 import { useAuth, AuthProvider } from "./contexts/AuthContext";
-import { auth, db, collection, signOut } from "./lib/firebase";
 
 function AppContent() {
-  const { user, profile, loading, isAdmin } = useAuth();
+  const { user, loading, isAdmin, logout } = useAuth();
   const [view, setView] = useState<'form' | 'admin'>('form');
   const [result, setResult] = useState<PredictionResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -22,7 +21,7 @@ function AppContent() {
     setIsLoading(true);
     setError(null);
     try {
-      const prediction = await predictCKD(data, user.uid);
+      const prediction = await predictCKD(data, user.id);
       setResult(prediction);
     } catch (err) {
       console.error("Prediction failed:", err);
@@ -80,11 +79,11 @@ function AppContent() {
                 )}
                 <div className="flex items-center gap-3 pl-4 border-l border-white/10">
                   <div className="text-right hidden md:block">
-                    <p className="text-xs text-white font-bold">{profile?.displayName}</p>
-                    <p className="text-[10px] text-white/40 uppercase tracking-widest">{profile?.role}</p>
+                    <p className="text-xs text-white font-bold">{user?.display_name}</p>
+                    <p className="text-[10px] text-white/40 uppercase tracking-widest">{user?.role}</p>
                   </div>
                   <button 
-                    onClick={() => signOut(auth)}
+                    onClick={logout}
                     className="p-2 rounded-xl bg-white/5 border border-white/10 text-white/60 hover:text-red-400 hover:bg-red-500/10 transition-all"
                   >
                     <LogOut size={18} />
