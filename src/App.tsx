@@ -21,7 +21,7 @@ function AppContent() {
     setIsLoading(true);
     setError(null);
     try {
-      const prediction = await predictCKD(data, user.id);
+      const prediction = await predictCKD(data);
       setResult(prediction);
     } catch (err: any) {
       console.error("Prediction failed:", err);
