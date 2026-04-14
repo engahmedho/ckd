@@ -1,7 +1,6 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
-import { fileURLToPath } from "url";
 import pg from "pg";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
@@ -9,9 +8,6 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
 dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const JWT_SECRET = process.env.JWT_SECRET || "ckd-predictor-secret-key";
 
