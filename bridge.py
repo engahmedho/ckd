@@ -2,6 +2,15 @@ import sys
 import json
 import os
 
+# Define the classes so joblib can unpickle them
+class AdvancedPreprocessor:
+    def __init__(self):
+        pass
+
+class DataCleaner:
+    def __init__(self):
+        pass
+
 # Set up logging to stderr so it shows in Render logs
 def log(msg):
     print(f"DEBUG: {msg}", file=sys.stderr)
