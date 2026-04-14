@@ -86,9 +86,28 @@ async function startServer() {
     }
   });
 
-  app.post("/api/predict", async (req, res) => {
-    const { inputs, userId } = req.body;
-    console.log(`[${new Date().toISOString()}] Internal Prediction request received for user: ${userId}`);
+  const authenticateToken = (req: any, res: any, next: any) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) return res.status(401).json({ error: "Access denied. No token provided." });
+
+    jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
+      if (err) return res.status(403).json({ error: "Invalid or expired token." });
+      req.user = user;
+      next();
+    });
+  };
+
+  app.post("/api/predict", authenticateToken, async (req: any, res) => {
+    const { inputs } = req.body;
+    const userId = req.user?.id?.toString();
+    
+    if (!userId) {
+      return res.status(400).json({ error: "Invalid user session. Please log in again." });
+    }
+
+    console.log(`[${new Date().toISOString()}] Authenticated Prediction request for user: ${userId}`);
     
     try {
       // Internal Clinical Logic (Rule-based Scoring)
@@ -185,8 +204,12 @@ async function startServer() {
     }
   });
 
-  app.get("/api/stats", async (req, res) => {
+  app.get("/api/stats", authenticateToken, async (req: any, res) => {
     try {
+      // Only admins can see full stats
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: "Forbidden. Admin access required." });
+      }
       const totalAssessments = await pool.query("SELECT COUNT(*) FROM assessments");
       const totalUsers = await pool.query("SELECT COUNT(*) FROM users");
       const ckd = await pool.query("SELECT COUNT(*) FROM assessments WHERE result->>'diagnosis' = 'CKD Detected'");
@@ -199,7 +222,7 @@ async function startServer() {
         ckdDetected: parseInt(ckd.rows[0].count),
         healthy: parseInt(healthy.rows[0].count),
         recentAssessments: recent.rows.map(r => ({
-          userId: r.user_id,
+          userId: r.user_id || "Unknown",
           createdAt: r.created_at,
           result: r.result
         }))
