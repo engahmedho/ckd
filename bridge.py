@@ -1,41 +1,45 @@
 import sys
 import json
-import joblib
-import pandas as pd
-import numpy as np
 import os
 
+# Set up logging to stderr so it shows in Render logs
+def log(msg):
+    print(f"DEBUG: {msg}", file=sys.stderr)
+
 def predict():
+    log("Starting bridge.py")
     try:
         # Check dependencies
-        missing_libs = []
-        for lib in ['joblib', 'pandas', 'numpy', 'xgboost']:
-            try:
-                __import__(lib)
-            except ImportError:
-                missing_libs.append(lib)
-        
-        if missing_libs:
-            print(json.dumps({"error": f"Missing Python libraries: {', '.join(missing_libs)}. Please install them using: pip install {' '.join(missing_libs)}"}))
-            return
+        log("Checking dependencies...")
+        import joblib
+        import pandas as pd
+        import numpy as np
+        import xgboost
+        log("Dependencies loaded successfully")
 
         # Load the model package
         model_path = 'kidney_disease_model.pkl'
         if not os.path.exists(model_path):
-            print(json.dumps({"error": f"Model file '{model_path}' not found in the server directory. Please upload the .pkl file."}))
+            log(f"Model file not found: {model_path}")
+            print(json.dumps({"error": f"Model file '{model_path}' not found. Please upload it."}))
             return
 
+        log("Loading model...")
         package = joblib.load(model_path)
         model = package['model']
         preprocessor = package['preprocessor']
         feature_names = package['feature_names']
+        log("Model loaded successfully")
 
         # Read input from stdin
+        log("Reading input data...")
         input_data = sys.stdin.read()
         if not input_data:
+            log("No input data received")
             return
         
         data = json.loads(input_data)
+        log(f"Received data: {data}")
         
         # Convert to DataFrame
         df = pd.DataFrame([data])
@@ -44,9 +48,11 @@ def predict():
         df = df[feature_names]
         
         # Preprocess
+        log("Preprocessing data...")
         X_processed = preprocessor.transform(df)
         
         # Predict
+        log("Running prediction...")
         prediction = model.predict(X_processed)[0]
         probability = model.predict_proba(X_processed)[0]
         
@@ -54,6 +60,7 @@ def predict():
         prob_ckd = float(probability[1])
         
         diagnosis = "CKD Detected" if prediction == 1 else "Healthy"
+        log(f"Prediction result: {diagnosis} ({prob_ckd})")
         
         # Simple feature impact (since SHAP might be slow or not installed)
         # We can use feature importance from XGBoost as a fallback
