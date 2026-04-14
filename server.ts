@@ -8,8 +8,18 @@ import { spawn } from "child_process";
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// حل يعمل مع ESM و CJS
+let __filename: string;
+let __dirname: string;
+
+if (typeof import.meta.url !== 'undefined') {
+  __filename = fileURLToPath(import.meta.url);
+  __dirname = path.dirname(__filename);
+} else {
+  // في حالة CommonJS
+  __filename = __filename;
+  __dirname = __dirname;
+}
 
 const { Pool } = pg;
 const pool = new Pool({
@@ -19,7 +29,7 @@ const pool = new Pool({
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT || 3000; // استخدام PORT من البيئة
 
   app.use(express.json());
 
