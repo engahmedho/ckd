@@ -31,12 +31,41 @@ async function startServer() {
 
   // API Routes (Register these FIRST)
   app.get("/api/health", (req, res) => {
-    exec("python3 --version", (error, stdout, stderr) => {
-      res.json({ 
-        status: "ok", 
-        message: "Server is running", 
-        timestamp: new Date().toISOString(),
-        python: error ? "Not found" : stdout.trim() || stderr.trim()
+    exec("ls -la", (lsErr, lsStdout, lsStderr) => {
+      exec("python3 --version", (error, stdout, stderr) => {
+        res.json({ 
+          status: "ok", 
+          message: "Server is running", 
+          timestamp: new Date().toISOString(),
+          python: error ? "Not found" : stdout.trim() || stderr.trim(),
+          files: lsStdout ? lsStdout.split("\n").filter(f => f.trim()) : []
+        });
+      });
+    });
+  });
+
+  app.get("/api/test-bridge", async (req, res) => {
+    const dummyInputs = {
+      age: 50, bp: 80, sg: 1.02, al: 0, su: 0, bgr: 120, bu: 40, sc: 1.2, sod: 140, pot: 4.5, hemo: 13, pcv: 40, wc: 8000, rc: 5,
+      rbc: 'normal', pc: 'normal', pcc: 'notpresent', ba: 'notpresent', htn: 'no', dm: 'no', cad: 'no', appet: 'good', pe: 'no', ane: 'no'
+    };
+    
+    const pythonProcess = spawn("python3", ["bridge.py"]);
+    let resultData = "";
+    let errorData = "";
+
+    pythonProcess.stdin.write(JSON.stringify(dummyInputs));
+    pythonProcess.stdin.end();
+
+    pythonProcess.stdout.on("data", (data) => resultData += data.toString());
+    pythonProcess.stderr.on("data", (data) => errorData += data.toString());
+
+    pythonProcess.on("close", (code) => {
+      res.json({
+        code,
+        stdout: resultData,
+        stderr: errorData,
+        parsed: resultData ? JSON.parse(resultData) : null
       });
     });
   });
