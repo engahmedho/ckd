@@ -26,7 +26,17 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Request Logging
+  app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    next();
+  });
+
   // API Routes (Register these FIRST)
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", message: "Server is running", timestamp: new Date().toISOString() });
+  });
+
   app.post("/api/auth/register", async (req, res) => {
     const { email, password, displayName } = req.body;
     try {
@@ -134,6 +144,11 @@ async function startServer() {
     }
   });
 
+  // API Catch-all (for unmatched /api/* routes)
+  app.all("/api/*", (req, res) => {
+    res.status(404).json({ error: `API route not found: ${req.method} ${req.url}` });
+  });
+
   // Initialize Database in background (Don't block routes)
   pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -164,9 +179,11 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
+    console.log(`[Production] Serving static files from: ${distPath}`);
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+      const indexPath = path.join(distPath, "index.html");
+      res.sendFile(indexPath);
     });
   }
 
