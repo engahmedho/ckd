@@ -9,7 +9,10 @@ export async function predictCKD(inputs: CKDInputs, userId: string): Promise<Pre
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || "Prediction failed");
+    const message = errorData.details 
+      ? `${errorData.error}: ${errorData.details}`
+      : (errorData.error || "Prediction failed");
+    throw new Error(message);
   }
   return response.json();
 }
