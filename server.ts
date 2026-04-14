@@ -5,7 +5,7 @@ import pg from "pg";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { GoogleGenAI } from "@google/genai";
+import * as GenAI from "@google/genai";
 
 dotenv.config();
 
@@ -97,7 +97,11 @@ async function startServer() {
         throw new Error("Gemini API key is missing from environment variables.");
       }
 
-      const genAI = new GoogleGenAI(apiKey);
+      const GoogleGenAIClass = (GenAI as any).GoogleGenAI || (GenAI as any).default?.GoogleGenAI;
+      if (!GoogleGenAIClass) {
+        throw new Error("Could not find GoogleGenAI class in the imported module.");
+      }
+      const genAI = new GoogleGenAIClass(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
       const prompt = `You are a medical diagnostic assistant specialized in Chronic Kidney Disease (CKD). 
