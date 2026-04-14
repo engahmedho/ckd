@@ -91,87 +91,45 @@ async function startServer() {
     console.log(`[${new Date().toISOString()}] Prediction request received for user: ${userId}`);
     
     try {
-      const HF_TOKEN = process.env.HUGGINGFACE_API_KEY;
-      const MODEL_ID = "Habib94/llama2_fine-tuned_chronic_kidney_disease";
+      const { GoogleGenAI } = await import("@google/genai");
+      const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY || "");
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-      if (!HF_TOKEN) {
-        return res.status(500).json({ error: "Hugging Face API key is not configured" });
-      }
-
-      // Format inputs into a prompt for Llama 2
-      const prompt = `<s>[INST] <<SYS>>
-You are a medical diagnostic assistant. Analyze the patient data and determine if they have Chronic Kidney Disease (CKD) or are Healthy.
-Respond ONLY with a JSON object in this exact format:
-{"diagnosis": "CKD Detected" or "Healthy", "probability": 0.0 to 1.0, "summary": "A short medical explanation"}
-<</SYS>>
+      const prompt = `You are a medical diagnostic assistant specialized in Chronic Kidney Disease (CKD). 
+Analyze the following patient data and determine if they have CKD or are Healthy.
 
 Patient Data:
-${Object.entries(inputs).map(([k, v]) => `${k}: ${v}`).join(", ")} [/INST]`;
+${Object.entries(inputs).map(([k, v]) => `${k}: ${v}`).join(", ")}
 
-      const response = await fetch(
-        `https://router.huggingface.co/hf-inference/models/${MODEL_ID}`,
-        {
-          headers: { 
-            Authorization: `Bearer ${HF_TOKEN}`,
-            "Content-Type": "application/json"
-          },
-          method: "POST",
-          body: JSON.stringify({ 
-            inputs: prompt,
-            parameters: { 
-              max_new_tokens: 150, 
-              return_full_text: false,
-              temperature: 0.1 // Keep it deterministic
-            }
-          }),
-        }
-      );
+Return the result STRICTLY in this JSON format:
+{
+  "diagnosis": "Healthy" or "CKD Detected",
+  "probability": number between 0 and 1,
+  "summary": "A concise medical explanation of the risk factors found"
+}`;
 
-      if (!response.ok) {
-        const error = await response.text();
-        console.error("Hugging Face API error:", error);
-        return res.status(500).json({ error: "Hugging Face API failed", details: error });
-      }
-
-      const output = await response.json();
-      let resultText = "";
+      const result = await model.generateContent(prompt);
+      const responseText = result.response.text();
       
-      if (Array.isArray(output) && output[0]?.generated_text) {
-        resultText = output[0].generated_text;
-      } else {
-        resultText = JSON.stringify(output);
+      // Extract JSON from response
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error("Invalid AI response format");
       }
-
-      // Extract JSON from Llama 2 output
-      let result;
-      try {
-        const jsonMatch = resultText.match(/\{[\s\S]*\}/);
-        result = jsonMatch ? JSON.parse(jsonMatch[0]) : { 
-          diagnosis: resultText.includes("CKD") ? "CKD Detected" : "Healthy",
-          probability: 0.5,
-          summary: resultText
-        };
-      } catch (e) {
-        result = { 
-          diagnosis: "Unknown", 
-          probability: 0, 
-          summary: "Failed to parse model output" 
-        };
-      }
-
-      // Ensure shapValues exists for UI compatibility
-      result.shapValues = [];
+      
+      const prediction = JSON.parse(jsonMatch[0]);
+      prediction.shapValues = []; // For UI compatibility
 
       // Save to PostgreSQL
       await pool.query(
         "INSERT INTO assessments (user_id, inputs, result) VALUES ($1, $2, $3)",
-        [userId, JSON.stringify(inputs), JSON.stringify(result)]
+        [userId, JSON.stringify(inputs), JSON.stringify(prediction)]
       );
 
-      res.json(result);
+      res.json(prediction);
     } catch (err) {
       console.error("Prediction error:", err);
-      res.status(500).json({ error: "Prediction failed" });
+      res.status(500).json({ error: "AI Analysis failed. Please check your Gemini API key." });
     }
   });
 
