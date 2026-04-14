@@ -7,10 +7,22 @@ import os
 
 def predict():
     try:
+        # Check dependencies
+        missing_libs = []
+        for lib in ['joblib', 'pandas', 'numpy', 'xgboost']:
+            try:
+                __import__(lib)
+            except ImportError:
+                missing_libs.append(lib)
+        
+        if missing_libs:
+            print(json.dumps({"error": f"Missing Python libraries: {', '.join(missing_libs)}. Please install them using: pip install {' '.join(missing_libs)}"}))
+            return
+
         # Load the model package
         model_path = 'kidney_disease_model.pkl'
         if not os.path.exists(model_path):
-            print(json.dumps({"error": f"Model file {model_path} not found"}))
+            print(json.dumps({"error": f"Model file '{model_path}' not found in the server directory. Please upload the .pkl file."}))
             return
 
         package = joblib.load(model_path)
