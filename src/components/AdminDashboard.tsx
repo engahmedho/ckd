@@ -1,10 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { db, collection, onSnapshot } from '../lib/firebase';
 import { getStats } from '../services/apiService';
 import { GlassCard } from './GlassCard';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { Users, Activity, AlertTriangle, Database, TrendingUp, Clock } from 'lucide-react';
-import { motion } from 'motion/react';
 
 export const AdminDashboard: React.FC = () => {
   const [stats, setStats] = useState({
@@ -20,12 +18,12 @@ export const AdminDashboard: React.FC = () => {
     const fetchStats = async () => {
       try {
         const data = await getStats();
-        setStats(prev => ({
-          ...prev,
+        setStats({
+          totalUsers: data.totalUsers,
           totalAssessments: data.totalAssessments,
           ckdDetected: data.ckdDetected,
           healthy: data.healthy
-        }));
+        });
         setRecentAssessments(data.recentAssessments);
       } catch (err) {
         console.error("Failed to fetch stats:", err);
@@ -35,13 +33,8 @@ export const AdminDashboard: React.FC = () => {
     fetchStats();
     const interval = setInterval(fetchStats, 10000); // Poll every 10s
 
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
-      setStats(prev => ({ ...prev, totalUsers: snap.size }));
-    });
-
     return () => {
       clearInterval(interval);
-      unsubUsers();
     };
   }, []);
 
