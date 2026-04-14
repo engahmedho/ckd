@@ -106,8 +106,11 @@ async function startServer() {
 
       pythonProcess.on("close", async (code) => {
         if (code !== 0) {
-          console.error(`Python process exited with code ${code}: ${errorData}`);
-          return res.status(500).json({ error: "Prediction model failed to execute" });
+          console.error(`Python process exited with code ${code}. Error: ${errorData}`);
+          return res.status(500).json({ 
+            error: "Prediction model failed to execute", 
+            details: errorData || `Exit code ${code}` 
+          });
         }
 
         try {
