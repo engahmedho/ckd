@@ -91,8 +91,13 @@ async function startServer() {
     console.log(`[${new Date().toISOString()}] Prediction request received for user: ${userId}`);
     
     try {
+      const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+      if (!apiKey) {
+        throw new Error("Gemini API key is missing from environment variables.");
+      }
+
       const { GoogleGenAI } = await import("@google/genai");
-      const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY || "");
+      const genAI = new GoogleGenAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
       const prompt = `You are a medical diagnostic assistant specialized in Chronic Kidney Disease (CKD). 
@@ -127,9 +132,12 @@ Return the result STRICTLY in this JSON format:
       );
 
       res.json(prediction);
-    } catch (err) {
-      console.error("Prediction error:", err);
-      res.status(500).json({ error: "AI Analysis failed. Please check your Gemini API key." });
+    } catch (err: any) {
+      console.error("Prediction error details:", err);
+      res.status(500).json({ 
+        error: "AI Analysis failed", 
+        details: err.message || "Unknown error"
+      });
     }
   });
 
@@ -203,6 +211,9 @@ Return the result STRICTLY in this JSON format:
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    if (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_API_KEY) {
+      console.warn("WARNING: GEMINI_API_KEY is not set. AI features will fail.");
+    }
   });
 }
 
