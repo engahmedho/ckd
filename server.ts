@@ -91,7 +91,7 @@ async function startServer() {
     try {
       const prompt = `Simulate an XGBoost CKD prediction model. Data: ${JSON.stringify(inputs)}`;
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-1.5-flash",
         contents: prompt,
         config: {
           responseMimeType: "application/json",
