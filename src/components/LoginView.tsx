@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { GlassCard } from './GlassCard';
-import { auth, db, doc, setDoc } from '../lib/firebase';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { LogIn, UserPlus, Mail, Lock, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useAuth } from '../contexts/AuthContext';
 
 export const LoginView: React.FC = () => {
+  const { login } = useAuth();
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,22 +18,23 @@ export const LoginView: React.FC = () => {
     setError(null);
     setLoading(true);
 
+    const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
+    const body = isLogin ? { email, password } : { email, password, displayName };
+
     try {
-      if (isLogin) {
-        await signInWithEmailAndPassword(auth, email, password);
-      } else {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        await updateProfile(userCredential.user, { displayName });
-        
-        // Create profile in Firestore
-        await setDoc(doc(db, 'users', userCredential.user.uid), {
-          uid: userCredential.user.uid,
-          email,
-          displayName,
-          role: email === 'eng.ahmedho773@gmail.com' ? 'admin' : 'user',
-          createdAt: new Date().toISOString()
-        });
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Authentication failed');
       }
+
+      login(data.token, data.user);
     } catch (err: any) {
       console.error("Auth error:", err);
       setError(err.message || "Authentication failed. Please try again.");
