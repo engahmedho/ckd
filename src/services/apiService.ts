@@ -1,10 +1,14 @@
 import { CKDInputs, PredictionResult } from "../types";
 
-export async function predictCKD(inputs: CKDInputs, userId: string): Promise<PredictionResult> {
+export async function predictCKD(inputs: CKDInputs): Promise<PredictionResult> {
+  const token = sessionStorage.getItem('ckd_token');
   const response = await fetch("/api/predict", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ inputs, userId }),
+    headers: { 
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`
+    },
+    body: JSON.stringify({ inputs }),
   });
 
   if (!response.ok) {
@@ -18,7 +22,12 @@ export async function predictCKD(inputs: CKDInputs, userId: string): Promise<Pre
 }
 
 export async function getStats() {
-  const response = await fetch("/api/stats");
+  const token = sessionStorage.getItem('ckd_token');
+  const response = await fetch("/api/stats", {
+    headers: { 
+      "Authorization": `Bearer ${token}`
+    }
+  });
   if (!response.ok) throw new Error("Failed to fetch stats");
   return response.json();
 }
