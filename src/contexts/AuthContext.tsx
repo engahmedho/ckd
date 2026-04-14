@@ -1,64 +1,62 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { auth, db, doc, getDoc, setDoc } from '../lib/firebase';
-import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 
 interface UserProfile {
-  uid: string;
+  id: string;
   email: string;
-  displayName: string;
+  display_name: string;
   role: 'admin' | 'user';
 }
 
 interface AuthContextType {
-  user: FirebaseUser | null;
-  profile: UserProfile | null;
+  user: UserProfile | null;
   loading: boolean;
   isAdmin: boolean;
+  login: (token: string, user: UserProfile) => void;
+  logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
-  profile: null,
   loading: true,
   isAdmin: false,
+  login: () => {},
+  logout: () => {},
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<FirebaseUser | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
-      
-      if (firebaseUser) {
-        // Check for profile in Firestore
-        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-        if (userDoc.exists()) {
-          setProfile(userDoc.data() as UserProfile);
-        } else {
-          // Create default profile
-          const newProfile: UserProfile = {
-            uid: firebaseUser.uid,
-            email: firebaseUser.email || '',
-            displayName: firebaseUser.displayName || 'User',
-            role: firebaseUser.email === 'eng.ahmedho773@gmail.com' ? 'admin' : 'user', // Bootstrap admin
-          };
-          await setDoc(doc(db, 'users', firebaseUser.uid), newProfile);
-          setProfile(newProfile);
-        }
-      } else {
-        setProfile(null);
-      }
-      setLoading(false);
-    });
-
-    return unsubscribe;
+    const storedUser = localStorage.getItem('ckd_user');
+    const storedToken = localStorage.getItem('ckd_token');
+    
+    if (storedUser && storedToken) {
+      setUser(JSON.parse(storedUser));
+    }
+    setLoading(false);
   }, []);
 
+  const login = (token: string, user: UserProfile) => {
+    localStorage.setItem('ckd_token', token);
+    localStorage.setItem('ckd_user', JSON.stringify(user));
+    setUser(user);
+  };
+
+  const logout = () => {
+    localStorage.removeItem('ckd_token');
+    localStorage.removeItem('ckd_user');
+    setUser(null);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, isAdmin: profile?.role === 'admin' }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      loading, 
+      isAdmin: user?.role === 'admin',
+      login,
+      logout
+    }}>
       {children}
     </AuthContext.Provider>
   );
