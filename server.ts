@@ -5,7 +5,6 @@ import pg from "pg";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { spawn, exec } from "child_process";
 
 dotenv.config();
 
@@ -31,42 +30,10 @@ async function startServer() {
 
   // API Routes (Register these FIRST)
   app.get("/api/health", (req, res) => {
-    exec("ls -la", (lsErr, lsStdout, lsStderr) => {
-      exec("python3 --version", (error, stdout, stderr) => {
-        res.json({ 
-          status: "ok", 
-          message: "Server is running", 
-          timestamp: new Date().toISOString(),
-          python: error ? "Not found" : stdout.trim() || stderr.trim(),
-          files: lsStdout ? lsStdout.split("\n").filter(f => f.trim()) : []
-        });
-      });
-    });
-  });
-
-  app.get("/api/test-bridge", async (req, res) => {
-    const dummyInputs = {
-      age: 50, bp: 80, sg: 1.02, al: 0, su: 0, bgr: 120, bu: 40, sc: 1.2, sod: 140, pot: 4.5, hemo: 13, pcv: 40, wc: 8000, rc: 5,
-      rbc: 'normal', pc: 'normal', pcc: 'notpresent', ba: 'notpresent', htn: 'no', dm: 'no', cad: 'no', appet: 'good', pe: 'no', ane: 'no'
-    };
-    
-    const pythonProcess = spawn("python3", ["bridge.py"]);
-    let resultData = "";
-    let errorData = "";
-
-    pythonProcess.stdin.write(JSON.stringify(dummyInputs));
-    pythonProcess.stdin.end();
-
-    pythonProcess.stdout.on("data", (data) => resultData += data.toString());
-    pythonProcess.stderr.on("data", (data) => errorData += data.toString());
-
-    pythonProcess.on("close", (code) => {
-      res.json({
-        code,
-        stdout: resultData,
-        stderr: errorData,
-        parsed: resultData ? JSON.parse(resultData) : null
-      });
+    res.json({ 
+      status: "ok", 
+      message: "Server is running", 
+      timestamp: new Date().toISOString()
     });
   });
 
@@ -121,68 +88,87 @@ async function startServer() {
 
   app.post("/api/predict", async (req, res) => {
     const { inputs, userId } = req.body;
+    console.log(`[${new Date().toISOString()}] Prediction request received for user: ${userId}`);
     
     try {
-      // Execute Python bridge script
-      const pythonProcess = spawn("python3", ["bridge.py"]);
+      const HF_TOKEN = process.env.HUGGINGFACE_API_KEY;
+      const MODEL_ID = "Habib94/llama2_fine-tuned_chronic_kidney_disease";
+
+      if (!HF_TOKEN) {
+        return res.status(500).json({ error: "Hugging Face API key is not configured" });
+      }
+
+      // Format inputs into a prompt for Llama 2
+      const prompt = `<s>[INST] <<SYS>>
+You are a medical diagnostic assistant. Analyze the patient data and determine if they have Chronic Kidney Disease (CKD) or are Healthy.
+Respond ONLY with a JSON object in this exact format:
+{"diagnosis": "CKD Detected" or "Healthy", "probability": 0.0 to 1.0, "summary": "A short medical explanation"}
+<</SYS>>
+
+Patient Data:
+${Object.entries(inputs).map(([k, v]) => `${k}: ${v}`).join(", ")} [/INST]`;
+
+      const response = await fetch(
+        `https://api-inference.huggingface.co/models/${MODEL_ID}`,
+        {
+          headers: { 
+            Authorization: `Bearer ${HF_TOKEN}`,
+            "Content-Type": "application/json"
+          },
+          method: "POST",
+          body: JSON.stringify({ 
+            inputs: prompt,
+            parameters: { 
+              max_new_tokens: 150, 
+              return_full_text: false,
+              temperature: 0.1 // Keep it deterministic
+            }
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error("Hugging Face API error:", error);
+        return res.status(500).json({ error: "Hugging Face API failed", details: error });
+      }
+
+      const output = await response.json();
+      let resultText = "";
       
-      let resultData = "";
-      let errorData = "";
+      if (Array.isArray(output) && output[0]?.generated_text) {
+        resultText = output[0].generated_text;
+      } else {
+        resultText = JSON.stringify(output);
+      }
 
-      pythonProcess.stdin.write(JSON.stringify(inputs));
-      pythonProcess.stdin.end();
+      // Extract JSON from Llama 2 output
+      let result;
+      try {
+        const jsonMatch = resultText.match(/\{[\s\S]*\}/);
+        result = jsonMatch ? JSON.parse(jsonMatch[0]) : { 
+          diagnosis: resultText.includes("CKD") ? "CKD Detected" : "Healthy",
+          probability: 0.5,
+          summary: resultText
+        };
+      } catch (e) {
+        result = { 
+          diagnosis: "Unknown", 
+          probability: 0, 
+          summary: "Failed to parse model output" 
+        };
+      }
 
-      pythonProcess.stdout.on("data", (data) => {
-        resultData += data.toString();
-      });
+      // Ensure shapValues exists for UI compatibility
+      result.shapValues = [];
 
-      pythonProcess.stderr.on("data", (data) => {
-        errorData += data.toString();
-      });
+      // Save to PostgreSQL
+      await pool.query(
+        "INSERT INTO assessments (user_id, inputs, result) VALUES ($1, $2, $3)",
+        [userId, JSON.stringify(inputs), JSON.stringify(result)]
+      );
 
-      pythonProcess.on("error", (err) => {
-        console.error("Failed to start Python process:", err);
-        if (!res.headersSent) {
-          res.status(500).json({ error: "Python execution failed", details: err.message });
-        }
-      });
-
-      const timeout = setTimeout(() => {
-        pythonProcess.kill();
-        if (!res.headersSent) {
-          res.status(500).json({ error: "Prediction timed out after 30 seconds" });
-        }
-      }, 30000);
-
-      pythonProcess.on("close", async (code) => {
-        clearTimeout(timeout);
-        if (res.headersSent) return;
-        if (code !== 0) {
-          console.error(`Python process exited with code ${code}. Error: ${errorData}`);
-          return res.status(500).json({ 
-            error: "Prediction model failed to execute", 
-            details: errorData || `Exit code ${code}` 
-          });
-        }
-
-        try {
-          const result = JSON.parse(resultData);
-          if (result.error) {
-            return res.status(500).json({ error: result.error });
-          }
-
-          // Save to PostgreSQL
-          await pool.query(
-            "INSERT INTO assessments (user_id, inputs, result) VALUES ($1, $2, $3)",
-            [userId, JSON.stringify(inputs), JSON.stringify(result)]
-          );
-
-          res.json(result);
-        } catch (parseErr) {
-          console.error("Failed to parse Python output:", resultData);
-          res.status(500).json({ error: "Invalid output from prediction model" });
-        }
-      });
+      res.json(result);
     } catch (err) {
       console.error("Prediction error:", err);
       res.status(500).json({ error: "Prediction failed" });
