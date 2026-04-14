@@ -28,24 +28,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('ckd_user');
-    const storedToken = localStorage.getItem('ckd_token');
+    const storedUser = sessionStorage.getItem('ckd_user');
+    const storedToken = sessionStorage.getItem('ckd_token');
     
     if (storedUser && storedToken) {
-      setUser(JSON.parse(storedUser));
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch (e) {
+        console.error("Failed to parse stored user", e);
+        sessionStorage.removeItem('ckd_user');
+        sessionStorage.removeItem('ckd_token');
+      }
     }
     setLoading(false);
   }, []);
 
   const login = (token: string, user: UserProfile) => {
-    localStorage.setItem('ckd_token', token);
-    localStorage.setItem('ckd_user', JSON.stringify(user));
+    sessionStorage.setItem('ckd_token', token);
+    sessionStorage.setItem('ckd_user', JSON.stringify(user));
     setUser(user);
   };
 
   const logout = () => {
-    localStorage.removeItem('ckd_token');
-    localStorage.removeItem('ckd_user');
+    sessionStorage.removeItem('ckd_token');
+    sessionStorage.removeItem('ckd_user');
     setUser(null);
   };
 
