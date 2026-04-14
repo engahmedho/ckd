@@ -109,7 +109,7 @@ Patient Data:
 ${Object.entries(inputs).map(([k, v]) => `${k}: ${v}`).join(", ")} [/INST]`;
 
       const response = await fetch(
-        `https://api-inference.huggingface.co/models/${MODEL_ID}`,
+        `https://router.huggingface.co/hf-inference/models/${MODEL_ID}`,
         {
           headers: { 
             Authorization: `Bearer ${HF_TOKEN}`,
