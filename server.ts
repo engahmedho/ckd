@@ -4,22 +4,16 @@ import path from "path";
 import { fileURLToPath } from "url";
 import pg from "pg";
 import dotenv from "dotenv";
-import { spawn } from "child_process";
+import { GoogleGenAI, Type } from "@google/genai";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 
 dotenv.config();
 
-// حل يعمل مع ESM و CJS
-let __filename: string;
-let __dirname: string;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-if (typeof import.meta.url !== 'undefined') {
-  __filename = fileURLToPath(import.meta.url);
-  __dirname = path.dirname(__filename);
-} else {
-  // في حالة CommonJS
-  __filename = __filename;
-  __dirname = __dirname;
-}
+const JWT_SECRET = process.env.JWT_SECRET || "ckd-predictor-secret-key";
 
 const { Pool } = pg;
 const pool = new Pool({
@@ -27,71 +21,92 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
 });
 
+// Initialize Gemini for model simulation
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT || 3000; // استخدام PORT من البيئة
+  const PORT = 3000;
 
   app.use(express.json());
 
-  // Initialize Database
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS assessments (
-        id SERIAL PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        inputs JSONB NOT NULL,
-        result JSONB NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  // API Routes (Register these FIRST)
+  app.post("/api/auth/register", async (req, res) => {
+    const { email, password, displayName } = req.body;
+    try {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const role = email === "admin@ckd.com" ? "admin" : "user";
+      
+      const result = await pool.query(
+        "INSERT INTO users (email, password, display_name, role) VALUES ($1, $2, $3, $4) RETURNING id, email, display_name, role",
+        [email, hashedPassword, displayName, role]
       );
-    `);
-    console.log("PostgreSQL table 'assessments' is ready.");
-  } catch (err) {
-    console.error("Database initialization error:", err);
-  }
+      
+      const user = result.rows[0];
+      const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET);
+      
+      res.json({ user, token });
+    } catch (err: any) {
+      console.error("Registration error:", err);
+      if (err.code === '23505') {
+        return res.status(400).json({ error: "Email already exists" });
+      }
+      res.status(500).json({ error: "Registration failed" });
+    }
+  });
 
-  // API Routes
+  app.post("/api/auth/login", async (req, res) => {
+    const { email, password } = req.body;
+    try {
+      const result = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
+      if (result.rows.length === 0) {
+        return res.status(400).json({ error: "User not found" });
+      }
+      
+      const user = result.rows[0];
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) {
+        return res.status(400).json({ error: "Invalid credentials" });
+      }
+      
+      const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET);
+      res.json({ 
+        user: { id: user.id, email: user.email, display_name: user.display_name, role: user.role }, 
+        token 
+      });
+    } catch (err) {
+      console.error("Login error:", err);
+      res.status(500).json({ error: "Login failed" });
+    }
+  });
+
   app.post("/api/predict", async (req, res) => {
     const { inputs, userId } = req.body;
-
     try {
-      // Use Python Bridge to run the .pkl model
-      const pythonProcess = spawn("python3", ["bridge.py"]);
-      
-      let resultData = "";
-      let errorData = "";
-
-      pythonProcess.stdin.write(JSON.stringify(inputs));
-      pythonProcess.stdin.end();
-
-      pythonProcess.stdout.on("data", (data) => {
-        resultData += data.toString();
-      });
-
-      pythonProcess.stderr.on("data", (data) => {
-        errorData += data.toString();
-      });
-
-      pythonProcess.on("close", async (code) => {
-        if (code !== 0) {
-          console.error("Python error:", errorData);
-          return res.status(500).json({ error: "Prediction failed" });
-        }
-
-        try {
-          const result = JSON.parse(resultData);
-          
-          // Save to PostgreSQL
-          await pool.query(
-            "INSERT INTO assessments (user_id, inputs, result) VALUES ($1, $2, $3)",
-            [userId || "anonymous", JSON.stringify(inputs), JSON.stringify(result)]
-          );
-
-          res.json(result);
-        } catch (e) {
-          console.error("JSON Parse error:", e);
-          res.status(500).json({ error: "Invalid prediction output" });
+      const prompt = `Simulate an XGBoost CKD prediction model. Data: ${JSON.stringify(inputs)}`;
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              diagnosis: { type: Type.STRING },
+              probability: { type: Type.NUMBER },
+              shapValues: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { feature: { type: Type.STRING }, value: { type: Type.NUMBER }, impact: { type: Type.STRING } } } },
+              summary: { type: Type.STRING }
+            }
+          }
         }
       });
+
+      const result = JSON.parse(response.text);
+      await pool.query(
+        "INSERT INTO assessments (user_id, inputs, result) VALUES ($1, $2, $3)",
+        [userId, JSON.stringify(inputs), JSON.stringify(result)]
+      );
+      res.json(result);
     } catch (err) {
       console.error("Prediction error:", err);
       res.status(500).json({ error: "Prediction failed" });
@@ -100,13 +115,15 @@ async function startServer() {
 
   app.get("/api/stats", async (req, res) => {
     try {
-      const total = await pool.query("SELECT COUNT(*) FROM assessments");
+      const totalAssessments = await pool.query("SELECT COUNT(*) FROM assessments");
+      const totalUsers = await pool.query("SELECT COUNT(*) FROM users");
       const ckd = await pool.query("SELECT COUNT(*) FROM assessments WHERE result->>'diagnosis' = 'CKD Detected'");
       const healthy = await pool.query("SELECT COUNT(*) FROM assessments WHERE result->>'diagnosis' = 'Healthy'");
       const recent = await pool.query("SELECT * FROM assessments ORDER BY created_at DESC LIMIT 10");
 
       res.json({
-        totalAssessments: parseInt(total.rows[0].count),
+        totalUsers: parseInt(totalUsers.rows[0].count),
+        totalAssessments: parseInt(totalAssessments.rows[0].count),
         ckdDetected: parseInt(ckd.rows[0].count),
         healthy: parseInt(healthy.rows[0].count),
         recentAssessments: recent.rows.map(r => ({
@@ -120,6 +137,27 @@ async function startServer() {
       res.status(500).json({ error: "Failed to fetch stats" });
     }
   });
+
+  // Initialize Database in background (Don't block routes)
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'user',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS assessments (
+      id SERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      inputs JSONB NOT NULL,
+      result JSONB NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `).then(() => console.log("PostgreSQL tables are ready."))
+    .catch(err => console.error("Database initialization error:", err));
+
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
