@@ -5,6 +5,7 @@ import pg from "pg";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { GoogleGenAI } from "@google/genai";
 
 dotenv.config();
 
@@ -96,7 +97,6 @@ async function startServer() {
         throw new Error("Gemini API key is missing from environment variables.");
       }
 
-      const { GoogleGenAI } = await import("@google/genai");
       const genAI = new GoogleGenAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
