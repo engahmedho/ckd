@@ -5,7 +5,6 @@ import pg from "pg";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import * as GenAI from "@google/genai";
 
 dotenv.config();
 
@@ -89,45 +88,86 @@ async function startServer() {
 
   app.post("/api/predict", async (req, res) => {
     const { inputs, userId } = req.body;
-    console.log(`[${new Date().toISOString()}] Prediction request received for user: ${userId}`);
+    console.log(`[${new Date().toISOString()}] Internal Prediction request received for user: ${userId}`);
     
     try {
-      const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-      if (!apiKey) {
-        throw new Error("Gemini API key is missing from environment variables.");
+      // Internal Clinical Logic (Rule-based Scoring)
+      let score = 0;
+      let maxScore = 0;
+      const findings: string[] = [];
+
+      // 1. Serum Creatinine (Very important)
+      maxScore += 40;
+      if (inputs.sc > 1.2) {
+        score += 40;
+        findings.push(`Elevated Serum Creatinine (${inputs.sc} mg/dL) indicates impaired kidney filtration.`);
       }
 
-      const GoogleGenAIClass = (GenAI as any).GoogleGenAI || (GenAI as any).default?.GoogleGenAI;
-      if (!GoogleGenAIClass) {
-        throw new Error("Could not find GoogleGenAI class in the imported module.");
+      // 2. Albumin (Protein in urine)
+      maxScore += 30;
+      if (inputs.al > 0) {
+        score += 30;
+        findings.push(`Presence of Albumin in urine (Level ${inputs.al}) is a strong marker of kidney damage.`);
       }
-      const genAI = new GoogleGenAIClass(apiKey);
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-      const prompt = `You are a medical diagnostic assistant specialized in Chronic Kidney Disease (CKD). 
-Analyze the following patient data and determine if they have CKD or are Healthy.
+      // 3. Hemoglobin (Anemia)
+      maxScore += 20;
+      if (inputs.hemo < 12) {
+        score += 20;
+        findings.push(`Low Hemoglobin (${inputs.hemo} g/dL) suggests anemia, common in chronic kidney issues.`);
+      }
 
-Patient Data:
-${Object.entries(inputs).map(([k, v]) => `${k}: ${v}`).join(", ")}
+      // 4. Specific Gravity
+      maxScore += 15;
+      if (inputs.sg < 1.020) {
+        score += 15;
+        findings.push(`Low Urine Specific Gravity (${inputs.sg}) may indicate inability of kidneys to concentrate urine.`);
+      }
 
-Return the result STRICTLY in this JSON format:
-{
-  "diagnosis": "Healthy" or "CKD Detected",
-  "probability": number between 0 and 1,
-  "summary": "A concise medical explanation of the risk factors found"
-}`;
+      // 5. Blood Pressure & Hypertension
+      maxScore += 20;
+      if (inputs.htn === 'yes' || inputs.bp > 90) {
+        score += 20;
+        findings.push("Hypertension or high blood pressure is a significant risk factor for renal progression.");
+      }
 
-      const result = await model.generateContent(prompt);
-      const responseText = result.response.text();
+      // 6. Diabetes Mellitus
+      maxScore += 20;
+      if (inputs.dm === 'yes' || inputs.bgr > 140) {
+        score += 20;
+        findings.push("Diabetes or elevated blood glucose is a leading cause of diabetic nephropathy.");
+      }
+
+      // 7. Blood Urea
+      maxScore += 15;
+      if (inputs.bu > 45) {
+        score += 15;
+        findings.push(`High Blood Urea (${inputs.bu} mg/dL) indicates accumulation of nitrogenous waste.`);
+      }
+
+      // 8. Pedal Edema
+      maxScore += 10;
+      if (inputs.pe === 'yes') {
+        score += 10;
+        findings.push("Pedal Edema (swelling) suggests fluid retention due to decreased kidney function.");
+      }
+
+      const probability = Math.min(score / (maxScore * 0.7), 0.99); // Scaled probability
+      const diagnosis = probability > 0.45 ? "CKD Detected" : "Healthy";
       
-      // Extract JSON from response
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error("Invalid AI response format");
+      let summary = "";
+      if (findings.length > 0) {
+        summary = `Based on clinical parameters: ${findings.join(" ")}`;
+      } else {
+        summary = "All clinical parameters are within normal ranges. No significant risk factors for CKD were detected.";
       }
-      
-      const prediction = JSON.parse(jsonMatch[0]);
-      prediction.shapValues = []; // For UI compatibility
+
+      const prediction = {
+        diagnosis,
+        probability: parseFloat(probability.toFixed(2)),
+        summary,
+        shapValues: [] // For UI compatibility
+      };
 
       // Save to PostgreSQL
       await pool.query(
@@ -137,9 +177,9 @@ Return the result STRICTLY in this JSON format:
 
       res.json(prediction);
     } catch (err: any) {
-      console.error("Prediction error details:", err);
+      console.error("Internal Prediction error:", err);
       res.status(500).json({ 
-        error: "AI Analysis failed", 
+        error: "Internal Analysis failed", 
         details: err.message || "Unknown error"
       });
     }
@@ -215,9 +255,6 @@ Return the result STRICTLY in this JSON format:
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
-    if (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_API_KEY) {
-      console.warn("WARNING: GEMINI_API_KEY is not set. AI features will fail.");
-    }
   });
 }
 
