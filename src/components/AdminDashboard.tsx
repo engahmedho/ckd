@@ -147,7 +147,9 @@ export const AdminDashboard: React.FC = () => {
             <tbody className="divide-y divide-white/5">
               {recentAssessments.length > 0 ? recentAssessments.map((a, i) => (
                 <tr key={i} className="group hover:bg-white/5 transition-colors">
-                  <td className="py-4 text-sm text-white/80 font-mono">{a.userId.slice(0, 8)}...</td>
+                  <td className="py-4 text-sm text-white/80 font-mono">
+                    {a.userId && typeof a.userId === 'string' ? (a.userId.length > 8 ? `${a.userId.slice(0, 8)}...` : a.userId) : "N/A"}
+                  </td>
                   <td className="py-4 text-sm text-white/60">{new Date(a.createdAt).toLocaleDateString()}</td>
                   <td className="py-4">
                     <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${a.result.diagnosis === 'CKD Detected' ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
